@@ -1,8 +1,7 @@
-use futures::{future, join};
+use async_h1::client;
+use async_std::net::TcpStream;
+use http_types::{Error, Method, Request, StatusCode, Url};
 
-extern crate libfrps_rs;
-
-use hyper::{Body, Method, Request, Uri, Version};
 use libfrps_rs::{Serializer, Tokenizer, Value, ValueTreeBuilder};
 
 struct Client<'a, R, W>
@@ -37,50 +36,51 @@ where
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
-    use futures::{Future, Stream};
-    use tokio::runtime::Runtime;
+    use async_std::io::Cursor;
+    use http_types::Body;
 
-    #[test]
-    fn it_works() {
+    #[async_std::test]
+    async fn it_works() {
         let _ = pretty_env_logger::try_init();
 
-        let mut rt = Runtime::new().expect("new rt");
-        let client = hyper::Client::new();
-
         let mut serializer = Serializer::new();
-        let mut buffer: Vec<u8> = vec![];
-        buffer.reserve(256);
+        let mut buffer = Vec::new();
+        buffer.resize(1024, 0u8);
 
         // call
-        let mut _written = 0;
+        let mut written = 0;
         let cnt = serializer.write_call(&mut buffer[..], "server.stat");
         assert_eq!(cnt.is_ok(), true);
-        _written += cnt.unwrap();
+        written += cnt.unwrap();
+
+        println!("written {} bytes", written);
 
         // Int
         serializer.reset();
         let val = Value::Int(1224);
-        let cnt = serializer.write_value(&mut buffer[_written..], &val);
+        let cnt = serializer.write_value(&mut buffer[written..], &val);
         assert_eq!(cnt.is_ok(), true);
-        _written += cnt.unwrap();
+        written += cnt.unwrap();
 
-        buffer.resize(_written, 0);
+        println!("written {} bytes", written);
+        println!("written {} bytes", buffer.len());
 
-        let req = Request::builder()
-            .method("POST")
-            .version(Version::HTTP_11)
-            .uri("http://localhost:30001/RPC2")
-            .header("User-Agent", "frps-client-rs")
-            .header("Transfer-Encoding", "chunked")
-            .header("Accept", "application/x-frps, application/x-frpc")
-            .header("Content-Type", "application/x-frpc")
-            .body(Body::from(buffer))
-            .expect("request builder");
+        let stream = TcpStream::connect("127.0.0.1:30001").await.unwrap();
+        let peer_addr = stream.peer_addr().unwrap();
+        println!("connecting to {}", peer_addr);
 
-        let res1 = client.request(req);
-        let res = rt.block_on(res1);
-        assert!(res.is_ok());
+        let url = Url::parse(&format!("http://{}/RPC2", peer_addr)).unwrap();
+        let mut req = Request::new(Method::Post, url);
+        req.insert_header("User-Agent", "frps-client-rs");
+        //req.insert_header("Transfer-Encoding", "chunked");
+        req.insert_header("Accept", "application/x-frps, application/x-frpc");
+        req.insert_header("Content-Type", "application/x-frpc");
+
+        let buff = Cursor::new(buffer);
+        req.set_body(Body::from_reader(buff, Some(written)));
+
+        let res = client::connect(stream.clone(), req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::Ok);
     }
 }

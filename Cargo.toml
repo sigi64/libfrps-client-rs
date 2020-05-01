@@ -8,9 +8,9 @@ edition = "2018"
 
 [dependencies]
 libfrps-rs = { path = "../libfrps-rs" }
-hyper = "0.13"
-hyper-timeout = "0.2"
-tokio = { version = "0.2", features = ["full"] }
-futures = "0.3"
+async-std = { version = "1.5.0", features = ["attributes"] }
+futures = "0.3.4"
+async-h1 = "1.1.0"
+http-types = "1.1.1"
 anyhow = "1.0.26"
 pretty_env_logger = "0.3.1"

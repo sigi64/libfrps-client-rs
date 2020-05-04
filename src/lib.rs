@@ -1,8 +1,11 @@
 use async_h1::client;
 use async_std::net::TcpStream;
-use http_types::{Error, Method, Request, StatusCode, Url};
-
+use async_std::prelude::*;
+use async_std::task;
+use http_types::headers::{HeaderName, HeaderValue};
+use http_types::{Body, Error, Method, Request, Response, StatusCode, Url};
 use libfrps_rs::{Serializer, Tokenizer, Value, ValueTreeBuilder};
+use std::str::FromStr;
 
 struct Client<'a, R, W>
 where
@@ -31,7 +34,13 @@ where
         }
     }
 
-    pub fn call(method: &str) {}
+    pub fn method(&mut self, method: &'a str) {
+        self.method_name = method;
+    }
+
+    pub fn param(&mut self, method: &'a str) {
+        self.method_name = method;
+    }
 }
 
 #[cfg(test)]
@@ -40,11 +49,22 @@ mod tests {
     use async_std::io::Cursor;
     use http_types::Body;
 
+    fn client() {
+        let mut client = Client::new("127.0.0.1:30001");
+        client.call("server.stat")
+        client.param(method)
+    }
+
     #[async_std::test]
     async fn it_works() {
         let _ = pretty_env_logger::try_init();
 
         let mut serializer = Serializer::new();
+
+        // uninitialized buffer (unsound solution!!!)
+        // let mut buffer = Vec::with_capacity(1024);
+        // unsafe { buffer.set_len(1024); }
+
         let mut buffer = Vec::new();
         buffer.resize(1024, 0u8);
 
@@ -82,5 +102,32 @@ mod tests {
 
         let res = client::connect(stream.clone(), req).await.unwrap();
         assert_eq!(res.status(), StatusCode::Ok);
+
+        let content_length = HeaderName::from_str("content-length").unwrap();
+        let content_type = HeaderName::from_str("content-type").unwrap();
+        let user_agent = HeaderName::from_str("user-agent").unwrap();
+
+        if let Some(val) = res.header(&user_agent) {
+            println!("User-agent: {}", val[0])
+        }
+
+        // Get type of protocol
+        let mut is_frps = false;
+        if let Some(val) = res.header(&content_type) {
+            let val = &val[0];
+            println!("Content-type: {}", val);
+
+            match val.as_str() {
+                "application/x-frpc" => is_frps = false,
+                "application/x-frps" => is_frps = true,
+                _ => println!("Unsupported content/type?: {}", val.as_str()),
+            }
+        }
+
+        if let Some(val) = res.header(&content_length) {
+            println!("Content-lenght: {}", val[0])
+        }
+
+        println!("response body: {}", res.body_string().await.unwrap());
     }
 }
